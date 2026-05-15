@@ -31,19 +31,24 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 export default function App() {
+  const [page, setPage] = useState("daily");
   const [question, setQuestion] = useState("");
   const [image, setImage] = useState(null);
-  const [questions, setQuestions] = useState([]);
+  const [dailyQuestions, setDailyQuestions] = useState([]);
+  const [libraryQuestions, setLibraryQuestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [solutionText, setSolutionText] = useState({});
 
   useEffect(() => {
-    const q = query(collection(db, "questions"), orderBy("createdAt", "desc"));
+    const dailyQuery = query(
+      collection(db, "questions"),
+      orderBy("createdAt", "desc")
+    );
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
+    const unsubscribeDaily = onSnapshot(dailyQuery, async (snapshot) => {
       const now = Date.now();
-      const freshQuestions = [];
+      const fresh = [];
 
       for (const docItem of snapshot.docs) {
         const data = docItem.data();
@@ -54,17 +59,31 @@ export default function App() {
         ) {
           await deleteDoc(doc(db, "questions", docItem.id));
         } else {
-          freshQuestions.push({
-            id: docItem.id,
-            ...data,
-          });
+          fresh.push({ id: docItem.id, ...data });
         }
       }
 
-      setQuestions(freshQuestions);
+      setDailyQuestions(fresh);
     });
 
-    return () => unsubscribe();
+    const libraryQuery = query(
+      collection(db, "library"),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribeLibrary = onSnapshot(libraryQuery, (snapshot) => {
+      setLibraryQuestions(
+        snapshot.docs.map((docItem) => ({
+          id: docItem.id,
+          ...docItem.data(),
+        }))
+      );
+    });
+
+    return () => {
+      unsubscribeDaily();
+      unsubscribeLibrary();
+    };
   }, []);
 
   async function uploadImageToImgBB(file) {
@@ -120,13 +139,13 @@ export default function App() {
     }
   }
 
-  async function addSolution(questionId) {
+  async function addSolution(collectionName, questionId) {
     const text = solutionText[questionId];
 
     if (!text || !text.trim()) return;
 
     try {
-      await updateDoc(doc(db, "questions", questionId), {
+      await updateDoc(doc(db, collectionName, questionId), {
         solutions: arrayUnion({
           text,
           createdAt: new Date().toISOString(),
@@ -143,44 +162,68 @@ export default function App() {
     }
   }
 
-  async function deleteQuestion(questionId) {
+  async function deleteQuestion(collectionName, questionId) {
     const confirmDelete = confirm("Delete this question?");
     if (!confirmDelete) return;
 
+    await deleteDoc(doc(db, collectionName, questionId));
+  }
+
+  async function saveToLibrary(q) {
     try {
-      await deleteDoc(doc(db, "questions", questionId));
+      await addDoc(collection(db, "library"), {
+        text: q.text || "",
+        imageUrl: q.imageUrl || "",
+        solutions: q.solutions || [],
+        createdAt: serverTimestamp(),
+      });
+
+      alert("Saved to Library!");
     } catch (error) {
       console.error(error);
       alert(error.message);
     }
   }
 
+  const list = page === "daily" ? dailyQuestions : libraryQuestions;
+  const collectionName = page === "daily" ? "questions" : "library";
+
   return (
     <div className="app">
       <h1>Daily Maths Questions</h1>
-      <p>Post questions, add solutions, and discuss maths daily.</p>
 
-      <form onSubmit={postQuestion}>
-        <textarea
-          placeholder="Type your maths question..."
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-        />
+      <div className="tabs">
+        <button onClick={() => setPage("daily")}>Daily Questions</button>
+        <button onClick={() => setPage("library")}>Library</button>
+      </div>
 
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setImage(e.target.files[0])}
-        />
+      {page === "daily" && (
+        <>
+          <p>Post questions. They delete after 24 hours unless saved to Library.</p>
 
-        <button disabled={loading}>
-          {loading ? "Posting..." : "Post Question"}
-        </button>
-      </form>
+          <form onSubmit={postQuestion}>
+            <textarea
+              placeholder="Type your maths question..."
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+            />
 
-      <h2>Questions</h2>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setImage(e.target.files[0])}
+            />
 
-      {questions.map((q) => (
+            <button disabled={loading}>
+              {loading ? "Posting..." : "Post Question"}
+            </button>
+          </form>
+        </>
+      )}
+
+      <h2>{page === "daily" ? "Today’s Questions" : "Question Library"}</h2>
+
+      {list.map((q) => (
         <div className="card" key={q.id}>
           <div onClick={() => setOpenId(openId === q.id ? null : q.id)}>
             {q.text && <p>{q.text}</p>}
@@ -213,14 +256,20 @@ export default function App() {
                 }
               />
 
-              <button type="button" onClick={() => addSolution(q.id)}>
+              <button type="button" onClick={() => addSolution(collectionName, q.id)}>
                 Add Solution
               </button>
+
+              {page === "daily" && (
+                <button type="button" onClick={() => saveToLibrary(q)}>
+                  Save to Library
+                </button>
+              )}
 
               <button
                 type="button"
                 className="deleteBtn"
-                onClick={() => deleteQuestion(q.id)}
+                onClick={() => deleteQuestion(collectionName, q.id)}
               >
                 Delete Question
               </button>
