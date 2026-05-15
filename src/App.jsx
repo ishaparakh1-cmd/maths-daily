@@ -8,6 +8,8 @@ import {
   query,
   orderBy,
   serverTimestamp,
+  deleteDoc,
+  doc,
 } from "firebase/firestore";
 import "./App.css";
 
@@ -35,12 +37,27 @@ export default function App() {
   useEffect(() => {
     const q = query(collection(db, "questions"), orderBy("createdAt", "desc"));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setQuestions(data);
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const now = Date.now();
+      const freshQuestions = [];
+
+      for (const docItem of snapshot.docs) {
+        const data = docItem.data();
+
+        if (
+          data.createdAt &&
+          now - data.createdAt.toMillis() > 24 * 60 * 60 * 1000
+        ) {
+          await deleteDoc(doc(db, "questions", docItem.id));
+        } else {
+          freshQuestions.push({
+            id: docItem.id,
+            ...data,
+          });
+        }
+      }
+
+      setQuestions(freshQuestions);
     });
 
     return () => unsubscribe();
@@ -101,7 +118,7 @@ export default function App() {
   return (
     <div className="app">
       <h1>Daily Maths Questions</h1>
-      <p>Post maths questions as text or image.</p>
+      <p>Post maths questions as text or image. Questions delete after 24 hours.</p>
 
       <form onSubmit={postQuestion}>
         <textarea
