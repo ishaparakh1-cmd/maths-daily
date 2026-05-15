@@ -81,7 +81,16 @@ export default function App() {
       }
     );
 
-    const data = await response.json();
+   const data = await response.json();
+
+if (!response.ok) {
+  throw new Error(data.error || "AI request failed");
+}
+
+setAiAnswers({
+  ...aiAnswers,
+  [questionId]: data.answer,
+});
 
     if (!data.success) {
       throw new Error("Image upload failed");
