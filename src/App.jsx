@@ -15,6 +15,14 @@ import {
 } from "firebase/firestore";
 import "./App.css";
 
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyCEWs4QXJ9Sh9vAKKZWJ4VZRLpDjtH0-5Y",
   authDomain: "maths-daily-eb8b4.firebaseapp.com",
@@ -24,6 +32,10 @@ const firebaseConfig = {
   appId: "1:69225994293:web:f43c6c6834d4dadae0b97c",
   measurementId: "G-9SJXL6VT3Q"
 };
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
 
 const IMGBB_API_KEY = "298cc560d302d7ec8f682a759b5971af";
 
@@ -81,16 +93,7 @@ export default function App() {
       }
     );
 
-   const data = await response.json();
-
-if (!response.ok) {
-  throw new Error(data.error || "AI request failed");
-}
-
-setAiAnswers({
-  ...aiAnswers,
-  [questionId]: data.answer,
-});
+    const data = await response.json();
 
     if (!data.success) {
       throw new Error("Image upload failed");
@@ -125,6 +128,7 @@ setAiAnswers({
       alert("Question posted!");
     } catch (error) {
       alert(error.message);
+      console.error(error);
     } finally {
       setLoading(false);
     }
@@ -135,24 +139,34 @@ setAiAnswers({
 
     if (!text || !text.trim()) return;
 
-    await updateDoc(doc(db, "questions", questionId), {
-      solutions: arrayUnion({
-        text,
-        createdAt: new Date().toISOString(),
-      }),
-    });
+    try {
+      await updateDoc(doc(db, "questions", questionId), {
+        solutions: arrayUnion({
+          text,
+          createdAt: new Date().toISOString(),
+        }),
+      });
 
-    setSolutionText({
-      ...solutionText,
-      [questionId]: "",
-    });
+      setSolutionText({
+        ...solutionText,
+        [questionId]: "",
+      });
+    } catch (error) {
+      alert(error.message);
+      console.error(error);
+    }
   }
 
   async function deleteQuestion(questionId) {
     const ok = confirm("Delete this question?");
     if (!ok) return;
 
-    await deleteDoc(doc(db, "questions", questionId));
+    try {
+      await deleteDoc(doc(db, "questions", questionId));
+    } catch (error) {
+      alert(error.message);
+      console.error(error);
+    }
   }
 
   async function getAiSolution(questionId, questionText) {
@@ -174,12 +188,16 @@ setAiAnswers({
 
       const data = await response.json();
 
+      if (!response.ok) {
+        throw new Error(data.error || "AI request failed");
+      }
+
       setAiAnswers({
         ...aiAnswers,
         [questionId]: data.answer,
       });
     } catch (error) {
-      alert("AI failed");
+      alert(error.message);
       console.error(error);
     } finally {
       setAiLoading({
@@ -192,9 +210,8 @@ setAiAnswers({
   return (
     <div className="app">
       <h1>Daily Maths Questions</h1>
-
       <p>
-        Post maths questions and get AI-generated solutions using Gemini AI.
+        Post maths questions, add solutions, and get AI-generated help.
       </p>
 
       <form onSubmit={postQuestion}>
@@ -260,9 +277,7 @@ setAiAnswers({
                 type="button"
                 onClick={() => getAiSolution(q.id, q.text)}
               >
-                {aiLoading[q.id]
-                  ? "Generating..."
-                  : "Get AI Solution"}
+                {aiLoading[q.id] ? "Generating..." : "Get AI Solution"}
               </button>
 
               {aiAnswers[q.id] && (
@@ -286,4 +301,4 @@ setAiAnswers({
       ))}
     </div>
   );
-}
+} 
