@@ -12,12 +12,13 @@ import {
 import "./App.css";
 
 const firebaseConfig = {
-  apiKey: "PASTE_HERE",
-  authDomain: "PASTE_HERE",
-  projectId: "PASTE_HERE",
-  storageBucket: "PASTE_HERE",
-  messagingSenderId: "PASTE_HERE",
-  appId: "PASTE_HERE",
+  apiKey: "AIzaSyCEWs4QXJ9Sh9vAKKZWJ4VZRLpDjtH0-5Y",
+  authDomain: "maths-daily-eb8b4.firebaseapp.com",
+  projectId: "maths-daily-eb8b4",
+  storageBucket: "maths-daily-eb8b4.firebasestorage.app",
+  messagingSenderId: "69225994293",
+  appId: "1:69225994293:web:f43c6c6834d4dadae0b97c",
+  measurementId: "G-9SJXL6VT3Q"
 };
 
 const IMGBB_API_KEY = "298cc560d302d7ec8f682a759b5971af";
@@ -33,18 +34,23 @@ export default function App() {
 
   useEffect(() => {
     const q = query(collection(db, "questions"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q, (snapshot) => {
-      setQuestions(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setQuestions(data);
     });
 
-    return unsub;
+    return () => unsubscribe();
   }, []);
 
   async function uploadImageToImgBB(file) {
     const formData = new FormData();
     formData.append("image", file);
 
-    const res = await fetch(
+    const response = await fetch(
       `https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`,
       {
         method: "POST",
@@ -52,7 +58,12 @@ export default function App() {
       }
     );
 
-    const data = await res.json();
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error("Image upload failed");
+    }
+
     return data.data.url;
   }
 
@@ -63,21 +74,28 @@ export default function App() {
 
     setLoading(true);
 
-    let imageUrl = "";
+    try {
+      let imageUrl = "";
 
-    if (image) {
-      imageUrl = await uploadImageToImgBB(image);
+      if (image) {
+        imageUrl = await uploadImageToImgBB(image);
+      }
+
+      await addDoc(collection(db, "questions"), {
+        text: question,
+        imageUrl,
+        createdAt: serverTimestamp(),
+      });
+
+      setQuestion("");
+      setImage(null);
+      alert("Question posted successfully!");
+    } catch (error) {
+      console.error(error);
+      alert(error.message);
+    } finally {
+      setLoading(false);
     }
-
-    await addDoc(collection(db, "questions"), {
-      text: question,
-      imageUrl,
-      createdAt: serverTimestamp(),
-    });
-
-    setQuestion("");
-    setImage(null);
-    setLoading(false);
   }
 
   return (
