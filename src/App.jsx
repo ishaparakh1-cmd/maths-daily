@@ -10,6 +10,8 @@ import {
   serverTimestamp,
   deleteDoc,
   doc,
+  updateDoc,
+  arrayUnion,
 } from "firebase/firestore";
 import "./App.css";
 
@@ -33,6 +35,8 @@ export default function App() {
   const [image, setImage] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [openId, setOpenId] = useState(null);
+  const [solutionText, setSolutionText] = useState({});
 
   useEffect(() => {
     const q = query(collection(db, "questions"), orderBy("createdAt", "desc"));
@@ -101,12 +105,13 @@ export default function App() {
       await addDoc(collection(db, "questions"), {
         text: question,
         imageUrl,
+        solutions: [],
         createdAt: serverTimestamp(),
       });
 
       setQuestion("");
       setImage(null);
-      alert("Question posted successfully!");
+      alert("Question posted!");
     } catch (error) {
       console.error(error);
       alert(error.message);
@@ -115,10 +120,45 @@ export default function App() {
     }
   }
 
+  async function addSolution(questionId) {
+    const text = solutionText[questionId];
+
+    if (!text || !text.trim()) return;
+
+    try {
+      await updateDoc(doc(db, "questions", questionId), {
+        solutions: arrayUnion({
+          text,
+          createdAt: new Date().toISOString(),
+        }),
+      });
+
+      setSolutionText({
+        ...solutionText,
+        [questionId]: "",
+      });
+    } catch (error) {
+      console.error(error);
+      alert(error.message);
+    }
+  }
+
+  async function deleteQuestion(questionId) {
+    const confirmDelete = confirm("Delete this question?");
+    if (!confirmDelete) return;
+
+    try {
+      await deleteDoc(doc(db, "questions", questionId));
+    } catch (error) {
+      console.error(error);
+      alert(error.message);
+    }
+  }
+
   return (
     <div className="app">
       <h1>Daily Maths Questions</h1>
-      <p>Post maths questions as text or image. Questions delete after 24 hours.</p>
+      <p>Post questions, add solutions, and discuss maths daily.</p>
 
       <form onSubmit={postQuestion}>
         <textarea
@@ -142,8 +182,50 @@ export default function App() {
 
       {questions.map((q) => (
         <div className="card" key={q.id}>
-          {q.text && <p>{q.text}</p>}
-          {q.imageUrl && <img src={q.imageUrl} alt="Math question" />}
+          <div onClick={() => setOpenId(openId === q.id ? null : q.id)}>
+            {q.text && <p>{q.text}</p>}
+            {q.imageUrl && <img src={q.imageUrl} alt="Math question" />}
+            <small>Click to view/add solutions</small>
+          </div>
+
+          {openId === q.id && (
+            <div className="solutions">
+              <h3>Solutions</h3>
+
+              {q.solutions && q.solutions.length > 0 ? (
+                q.solutions.map((s, index) => (
+                  <div className="solution" key={index}>
+                    {s.text}
+                  </div>
+                ))
+              ) : (
+                <p>No solutions yet.</p>
+              )}
+
+              <textarea
+                placeholder="Write your solution..."
+                value={solutionText[q.id] || ""}
+                onChange={(e) =>
+                  setSolutionText({
+                    ...solutionText,
+                    [q.id]: e.target.value,
+                  })
+                }
+              />
+
+              <button type="button" onClick={() => addSolution(q.id)}>
+                Add Solution
+              </button>
+
+              <button
+                type="button"
+                className="deleteBtn"
+                onClick={() => deleteQuestion(q.id)}
+              >
+                Delete Question
+              </button>
+            </div>
+          )}
         </div>
       ))}
     </div>
