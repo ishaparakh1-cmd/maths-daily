@@ -15,14 +15,6 @@ import {
 } from "firebase/firestore";
 import "./App.css";
 
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyCEWs4QXJ9Sh9vAKKZWJ4VZRLpDjtH0-5Y",
   authDomain: "maths-daily-eb8b4.firebaseapp.com",
@@ -33,10 +25,6 @@ const firebaseConfig = {
   measurementId: "G-9SJXL6VT3Q"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-
 const IMGBB_API_KEY = "298cc560d302d7ec8f682a759b5971af";
 
 const app = initializeApp(firebaseConfig);
@@ -46,7 +34,7 @@ export default function App() {
   const [question, setQuestion] = useState("");
   const [image, setImage] = useState(null);
   const [questions, setQuestions] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [posting, setPosting] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [solutionText, setSolutionText] = useState({});
   const [aiAnswers, setAiAnswers] = useState({});
@@ -57,25 +45,22 @@ export default function App() {
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       const now = Date.now();
-      const freshQuestions = [];
+      const fresh = [];
 
       for (const item of snapshot.docs) {
         const data = item.data();
-
-        if (
+        const tooOld =
           data.createdAt &&
-          now - data.createdAt.toMillis() > 24 * 60 * 60 * 1000
-        ) {
+          now - data.createdAt.toMillis() > 24 * 60 * 60 * 1000;
+
+        if (tooOld) {
           await deleteDoc(doc(db, "questions", item.id));
         } else {
-          freshQuestions.push({
-            id: item.id,
-            ...data,
-          });
+          fresh.push({ id: item.id, ...data });
         }
       }
 
-      setQuestions(freshQuestions);
+      setQuestions(fresh);
     });
 
     return () => unsubscribe();
@@ -85,7 +70,7 @@ export default function App() {
     const formData = new FormData();
     formData.append("image", file);
 
-    const response = await fetch(
+    const res = await fetch(
       `https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`,
       {
         method: "POST",
@@ -93,10 +78,10 @@ export default function App() {
       }
     );
 
-    const data = await response.json();
+    const data = await res.json();
 
-    if (!data.success) {
-      throw new Error("Image upload failed");
+    if (!res.ok || !data.success) {
+      throw new Error(data?.error?.message || "Image upload failed");
     }
 
     return data.data.url;
@@ -105,9 +90,12 @@ export default function App() {
   async function postQuestion(e) {
     e.preventDefault();
 
-    if (!question.trim() && !image) return;
+    if (!question.trim() && !image) {
+      alert("Please type a question or upload an image.");
+      return;
+    }
 
-    setLoading(true);
+    setPosting(true);
 
     try {
       let imageUrl = "";
@@ -117,7 +105,7 @@ export default function App() {
       }
 
       await addDoc(collection(db, "questions"), {
-        text: question,
+        text: question.trim(),
         imageUrl,
         solutions: [],
         createdAt: serverTimestamp(),
@@ -130,14 +118,17 @@ export default function App() {
       alert(error.message);
       console.error(error);
     } finally {
-      setLoading(false);
+      setPosting(false);
     }
   }
 
   async function addSolution(questionId) {
-    const text = solutionText[questionId];
+    const text = solutionText[questionId]?.trim();
 
-    if (!text || !text.trim()) return;
+    if (!text) {
+      alert("Please write a solution first.");
+      return;
+    }
 
     try {
       await updateDoc(doc(db, "questions", questionId), {
@@ -147,13 +138,60 @@ export default function App() {
         }),
       });
 
-      setSolutionText({
-        ...solutionText,
+      setSolutionText((prev) => ({
+        ...prev,
         [questionId]: "",
-      });
+      }));
     } catch (error) {
       alert(error.message);
       console.error(error);
+    }
+  }
+
+  async function getAiSolution(questionId, questionText, imageUrl) {
+    try {
+      setAiLoading((prev) => ({
+        ...prev,
+        [questionId]: true,
+      }));
+
+      const textForAI =
+        questionText?.trim() ||
+        "The question is in the uploaded image. Explain the likely solution if possible.";
+
+      const res = await fetch("/api/solve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: textForAI,
+          imageUrl: imageUrl || "",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "AI request failed");
+      }
+
+      if (!data.answer) {
+        throw new Error("No answer returned from AI.");
+      }
+
+      setAiAnswers((prev) => ({
+        ...prev,
+        [questionId]: data.answer,
+      }));
+    } catch (error) {
+      alert("AI ERROR: " + error.message);
+      console.error(error);
+    } finally {
+      setAiLoading((prev) => ({
+        ...prev,
+        [questionId]: false,
+      }));
     }
   }
 
@@ -169,50 +207,10 @@ export default function App() {
     }
   }
 
-  async function getAiSolution(questionId, questionText) {
-    try {
-      setAiLoading({
-        ...aiLoading,
-        [questionId]: true,
-      });
-
-      const response = await fetch("/api/solve", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question: questionText,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "AI request failed");
-      }
-
-      setAiAnswers({
-        ...aiAnswers,
-        [questionId]: data.answer,
-      });
-    } catch (error) {
-      alert(error.message);
-      console.error(error);
-    } finally {
-      setAiLoading({
-        ...aiLoading,
-        [questionId]: false,
-      });
-    }
-  }
-
   return (
     <div className="app">
       <h1>Daily Maths Questions</h1>
-      <p>
-        Post maths questions, add solutions, and get AI-generated help.
-      </p>
+      <p>Post maths questions, add solutions, and get AI help.</p>
 
       <form onSubmit={postQuestion}>
         <textarea
@@ -224,31 +222,34 @@ export default function App() {
         <input
           type="file"
           accept="image/*"
-          onChange={(e) => setImage(e.target.files[0])}
+          onChange={(e) => setImage(e.target.files?.[0] || null)}
         />
 
-        <button disabled={loading}>
-          {loading ? "Posting..." : "Post Question"}
+        <button disabled={posting}>
+          {posting ? "Posting..." : "Post Question"}
         </button>
       </form>
 
       <h2>Daily Questions</h2>
 
-      {questions.length === 0 && <p>No questions yet.</p>}
+      {questions.length === 0 && <p className="empty">No questions yet.</p>}
 
       {questions.map((q) => (
         <div className="card" key={q.id}>
-          <div onClick={() => setOpenId(openId === q.id ? null : q.id)}>
+          <div
+            className="questionArea"
+            onClick={() => setOpenId(openId === q.id ? null : q.id)}
+          >
             {q.text && <p>{q.text}</p>}
             {q.imageUrl && <img src={q.imageUrl} alt="Math question" />}
-            <small>Click to view or add solutions</small>
+            <small>Click to view solutions</small>
           </div>
 
           {openId === q.id && (
             <div className="solutions">
               <h3>Solutions</h3>
 
-              {q.solutions && q.solutions.length > 0 ? (
+              {q.solutions?.length > 0 ? (
                 q.solutions.map((s, index) => (
                   <div className="solution" key={index}>
                     {s.text}
@@ -262,10 +263,10 @@ export default function App() {
                 placeholder="Write your solution..."
                 value={solutionText[q.id] || ""}
                 onChange={(e) =>
-                  setSolutionText({
-                    ...solutionText,
+                  setSolutionText((prev) => ({
+                    ...prev,
                     [q.id]: e.target.value,
-                  })
+                  }))
                 }
               />
 
@@ -275,7 +276,8 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => getAiSolution(q.id, q.text)}
+                onClick={() => getAiSolution(q.id, q.text, q.imageUrl)}
+                disabled={aiLoading[q.id]}
               >
                 {aiLoading[q.id] ? "Generating..." : "Get AI Solution"}
               </button>
@@ -284,7 +286,7 @@ export default function App() {
                 <div className="solution">
                   <strong>AI Solution:</strong>
                   <br />
-                  {aiAnswers[q.id]}
+                  <pre>{aiAnswers[q.id]}</pre>
                 </div>
               )}
 
@@ -301,4 +303,4 @@ export default function App() {
       ))}
     </div>
   );
-} 
+}
