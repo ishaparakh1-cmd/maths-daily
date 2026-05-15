@@ -45,17 +45,17 @@ export default function App() {
       const now = Date.now();
       const freshQuestions = [];
 
-      for (const docItem of snapshot.docs) {
-        const data = docItem.data();
+      for (const item of snapshot.docs) {
+        const data = item.data();
 
         if (
           data.createdAt &&
           now - data.createdAt.toMillis() > 24 * 60 * 60 * 1000
         ) {
-          await deleteDoc(doc(db, "questions", docItem.id));
+          await deleteDoc(doc(db, "questions", item.id));
         } else {
           freshQuestions.push({
-            id: docItem.id,
+            id: item.id,
             ...data,
           });
         }
@@ -67,7 +67,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  async function uploadImageToImgBB(file) {
+  async function uploadImage(file) {
     const formData = new FormData();
     formData.append("image", file);
 
@@ -99,7 +99,7 @@ export default function App() {
       let imageUrl = "";
 
       if (image) {
-        imageUrl = await uploadImageToImgBB(image);
+        imageUrl = await uploadImage(image);
       }
 
       await addDoc(collection(db, "questions"), {
@@ -113,7 +113,6 @@ export default function App() {
       setImage(null);
       alert("Question posted!");
     } catch (error) {
-      console.error(error);
       alert(error.message);
     } finally {
       setLoading(false);
@@ -125,40 +124,30 @@ export default function App() {
 
     if (!text || !text.trim()) return;
 
-    try {
-      await updateDoc(doc(db, "questions", questionId), {
-        solutions: arrayUnion({
-          text,
-          createdAt: new Date().toISOString(),
-        }),
-      });
+    await updateDoc(doc(db, "questions", questionId), {
+      solutions: arrayUnion({
+        text,
+        createdAt: new Date().toISOString(),
+      }),
+    });
 
-      setSolutionText({
-        ...solutionText,
-        [questionId]: "",
-      });
-    } catch (error) {
-      console.error(error);
-      alert(error.message);
-    }
+    setSolutionText({
+      ...solutionText,
+      [questionId]: "",
+    });
   }
 
   async function deleteQuestion(questionId) {
-    const confirmDelete = confirm("Delete this question?");
-    if (!confirmDelete) return;
+    const ok = confirm("Delete this question?");
+    if (!ok) return;
 
-    try {
-      await deleteDoc(doc(db, "questions", questionId));
-    } catch (error) {
-      console.error(error);
-      alert(error.message);
-    }
+    await deleteDoc(doc(db, "questions", questionId));
   }
 
   return (
     <div className="app">
       <h1>Daily Maths Questions</h1>
-      <p>Post questions, add solutions, and discuss maths daily.</p>
+      <p>Post a maths question. Your friends can see it in Daily Questions.</p>
 
       <form onSubmit={postQuestion}>
         <textarea
@@ -180,12 +169,14 @@ export default function App() {
 
       <h2>Daily Questions</h2>
 
+      {questions.length === 0 && <p>No questions yet.</p>}
+
       {questions.map((q) => (
         <div className="card" key={q.id}>
           <div onClick={() => setOpenId(openId === q.id ? null : q.id)}>
             {q.text && <p>{q.text}</p>}
             {q.imageUrl && <img src={q.imageUrl} alt="Math question" />}
-            <small>Click to view/add solutions</small>
+            <small>Click to view or add solutions</small>
           </div>
 
           {openId === q.id && (
