@@ -37,6 +37,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [solutionText, setSolutionText] = useState({});
+  const [aiAnswers, setAiAnswers] = useState({});
+  const [aiLoading, setAiLoading] = useState({});
 
   useEffect(() => {
     const q = query(collection(db, "questions"), orderBy("createdAt", "desc"));
@@ -144,10 +146,47 @@ export default function App() {
     await deleteDoc(doc(db, "questions", questionId));
   }
 
+  async function getAiSolution(questionId, questionText) {
+    try {
+      setAiLoading({
+        ...aiLoading,
+        [questionId]: true,
+      });
+
+      const response = await fetch("/api/solve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: questionText,
+        }),
+      });
+
+      const data = await response.json();
+
+      setAiAnswers({
+        ...aiAnswers,
+        [questionId]: data.answer,
+      });
+    } catch (error) {
+      alert("AI failed");
+      console.error(error);
+    } finally {
+      setAiLoading({
+        ...aiLoading,
+        [questionId]: false,
+      });
+    }
+  }
+
   return (
     <div className="app">
       <h1>Daily Maths Questions</h1>
-      <p>Post a maths question. Your friends can see it in Daily Questions.</p>
+
+      <p>
+        Post maths questions and get AI-generated solutions using Gemini AI.
+      </p>
 
       <form onSubmit={postQuestion}>
         <textarea
@@ -190,7 +229,7 @@ export default function App() {
                   </div>
                 ))
               ) : (
-                <p>No solutions yet.</p>
+                <p>No user solutions yet.</p>
               )}
 
               <textarea
@@ -207,6 +246,23 @@ export default function App() {
               <button type="button" onClick={() => addSolution(q.id)}>
                 Add Solution
               </button>
+
+              <button
+                type="button"
+                onClick={() => getAiSolution(q.id, q.text)}
+              >
+                {aiLoading[q.id]
+                  ? "Generating..."
+                  : "Get AI Solution"}
+              </button>
+
+              {aiAnswers[q.id] && (
+                <div className="solution">
+                  <strong>AI Solution:</strong>
+                  <br />
+                  {aiAnswers[q.id]}
+                </div>
+              )}
 
               <button
                 type="button"
