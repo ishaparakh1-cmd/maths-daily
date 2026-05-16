@@ -23,9 +23,14 @@ export default async function handler(req, res) {
               parts: [
                 {
                   text: `
-You are a maths teacher.
+You are a highly skilled maths tutor.
 
-Solve step by step clearly and simply.
+Solve step by step clearly.
+
+Always show:
+1. Given
+2. Solution steps
+3. Final answer
 
 Question:
 ${question}
@@ -40,12 +45,19 @@ ${question}
 
     const data = await response.json();
 
+    console.log("GEMINI RAW RESPONSE:", JSON.stringify(data));
+
     const answer =
       data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    return res.status(200).json({
-      answer: answer || "AI could not solve this question.",
-    });
+    if (!answer || answer.trim().length === 0) {
+      return res.status(200).json({
+        answer:
+          "AI could not generate a proper solution. Try rephrasing the question.",
+      });
+    }
+
+    return res.status(200).json({ answer });
   } catch (error) {
     return res.status(500).json({
       error: error.message,
