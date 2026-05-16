@@ -4,38 +4,10 @@ export default async function handler(req, res) {
       return res.status(405).json({ error: "Only POST allowed" });
     }
 
-    const { question, imageUrl } = req.body;
+    const { question } = req.body;
 
-    let parts = [];
-
-    // TEXT INPUT
-    if (question) {
-      parts.push({
-        text: `
-You are an expert maths teacher.
-
-Solve step by step clearly.
-
-Question:
-${question}
-        `,
-      });
-    }
-
-    // IMAGE INPUT (REAL VISION FIX)
-    if (imageUrl) {
-      const imageBuffer = await fetch(imageUrl).then((r) =>
-        r.arrayBuffer()
-      );
-
-      const base64 = Buffer.from(imageBuffer).toString("base64");
-
-      parts.push({
-        inline_data: {
-          mime_type: "image/jpeg",
-          data: base64,
-        },
-      });
+    if (!question) {
+      return res.status(400).json({ error: "No question provided" });
     }
 
     const response = await fetch(
@@ -48,7 +20,18 @@ ${question}
         body: JSON.stringify({
           contents: [
             {
-              parts,
+              parts: [
+                {
+                  text: `
+You are a maths teacher.
+
+Solve step by step clearly and simply.
+
+Question:
+${question}
+                  `,
+                },
+              ],
             },
           ],
         }),
@@ -60,15 +43,12 @@ ${question}
     const answer =
       data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!answer) {
-      return res.status(200).json({
-        answer:
-          "AI could not clearly read this question. Try a clearer image or typed text.",
-      });
-    }
-
-    res.status(200).json({ answer });
+    return res.status(200).json({
+      answer: answer || "AI could not solve this question.",
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({
+      error: error.message,
+    });
   }
 }
