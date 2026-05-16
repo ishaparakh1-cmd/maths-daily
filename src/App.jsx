@@ -24,7 +24,6 @@ const firebaseConfig = {
   appId: "1:69225994293:web:f43c6c6834d4dadae0b97c",
   measurementId: "G-9SJXL6VT3Q"
 };
-
 const IMGBB_API_KEY = "298cc560d302d7ec8f682a759b5971af";
 
 const app = initializeApp(firebaseConfig);
@@ -34,7 +33,7 @@ export default function App() {
   const [question, setQuestion] = useState("");
   const [image, setImage] = useState(null);
   const [questions, setQuestions] = useState([]);
-  const [posting, setPosting] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [solutionText, setSolutionText] = useState({});
   const [aiAnswers, setAiAnswers] = useState({});
@@ -43,17 +42,18 @@ export default function App() {
   useEffect(() => {
     const q = query(collection(db, "questions"), orderBy("createdAt", "desc"));
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
+    const unsub = onSnapshot(q, async (snapshot) => {
       const now = Date.now();
       const fresh = [];
 
       for (const item of snapshot.docs) {
         const data = item.data();
-        const tooOld =
-          data.createdAt &&
-          now - data.createdAt.toMillis() > 24 * 60 * 60 * 1000;
 
-        if (tooOld) {
+        // auto delete after 24h
+        if (
+          data.createdAt &&
+          now - data.createdAt.toMillis() > 24 * 60 * 60 * 1000
+        ) {
           await deleteDoc(doc(db, "questions", item.id));
         } else {
           fresh.push({ id: item.id, ...data });
@@ -63,7 +63,7 @@ export default function App() {
       setQuestions(fresh);
     });
 
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
 
   async function uploadImage(file) {
@@ -80,9 +80,7 @@ export default function App() {
 
     const data = await res.json();
 
-    if (!res.ok || !data.success) {
-      throw new Error(data?.error?.message || "Image upload failed");
-    }
+    if (!data.success) throw new Error("Image upload failed");
 
     return data.data.url;
   }
@@ -90,12 +88,9 @@ export default function App() {
   async function postQuestion(e) {
     e.preventDefault();
 
-    if (!question.trim() && !image) {
-      alert("Please type a question or upload an image.");
-      return;
-    }
+    if (!question.trim() && !image) return;
 
-    setPosting(true);
+    setLoading(true);
 
     try {
       let imageUrl = "";
@@ -104,113 +99,89 @@ export default function App() {
         imageUrl = await uploadImage(image);
       }
 
-      await addDoc(collection(db, "questions"), {
-        text: question.trim(),
+      const ref = await addDoc(collection(db, "questions"), {
+        text: question,
         imageUrl,
         solutions: [],
+        aiSolution: "",
         createdAt: serverTimestamp(),
       });
 
-      setQuestion("");
-      setImage(null);
-      alert("Question posted!");
-    } catch (error) {
-      alert(error.message);
-      console.error(error);
-    } finally {
-      setPosting(false);
-    }
-  }
-
-  async function addSolution(questionId) {
-    const text = solutionText[questionId]?.trim();
-
-    if (!text) {
-      alert("Please write a solution first.");
-      return;
-    }
-
-    try {
-      await updateDoc(doc(db, "questions", questionId), {
-        solutions: arrayUnion({
-          text,
-          createdAt: new Date().toISOString(),
-        }),
-      });
-
-      setSolutionText((prev) => ({
-        ...prev,
-        [questionId]: "",
-      }));
-    } catch (error) {
-      alert(error.message);
-      console.error(error);
-    }
-  }
-
-  async function getAiSolution(questionId, questionText, imageUrl) {
-    try {
-      setAiLoading((prev) => ({
-        ...prev,
-        [questionId]: true,
-      }));
-
-      const textForAI =
-        questionText?.trim() ||
-        "The question is in the uploaded image. Explain the likely solution if possible.";
-
+      // AUTO AI SOLUTION
       const res = await fetch("/api/solve", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          question: textForAI,
-          imageUrl: imageUrl || "",
+          question,
+          imageUrl,
         }),
       });
 
       const data = await res.json();
 
-      if (!res.ok) {
-        throw new Error(data.error || "AI request failed");
-      }
+      await updateDoc(doc(db, "questions", ref.id), {
+        aiSolution: data.answer || "AI failed",
+      });
 
-      if (!data.answer) {
-        throw new Error("No answer returned from AI.");
-      }
-
-      setAiAnswers((prev) => ({
-        ...prev,
-        [questionId]: data.answer,
-      }));
+      setQuestion("");
+      setImage(null);
     } catch (error) {
-      alert("AI ERROR: " + error.message);
       console.error(error);
+      alert(error.message);
     } finally {
-      setAiLoading((prev) => ({
-        ...prev,
-        [questionId]: false,
-      }));
+      setLoading(false);
     }
   }
 
-  async function deleteQuestion(questionId) {
-    const ok = confirm("Delete this question?");
-    if (!ok) return;
+  async function addSolution(id) {
+    const text = solutionText[id];
+    if (!text?.trim()) return;
 
+    await updateDoc(doc(db, "questions", id), {
+      solutions: arrayUnion({
+        text,
+        createdAt: new Date().toISOString(),
+      }),
+    });
+
+    setSolutionText((p) => ({ ...p, [id]: "" }));
+  }
+
+  async function deleteQuestion(id) {
+    if (!confirm("Delete this question?")) return;
+    await deleteDoc(doc(db, "questions", id));
+  }
+
+  async function getAiSolution(id, text, imageUrl) {
     try {
-      await deleteDoc(doc(db, "questions", questionId));
-    } catch (error) {
-      alert(error.message);
-      console.error(error);
+      setAiLoading((p) => ({ ...p, [id]: true }));
+
+      const res = await fetch("/api/solve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: text,
+          imageUrl,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error);
+
+      setAiAnswers((p) => ({ ...p, [id]: data.answer }));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setAiLoading((p) => ({ ...p, [id]: false }));
     }
   }
 
   return (
     <div className="app">
       <h1>Daily Maths Questions</h1>
-      <p>Post maths questions, add solutions, and get AI help.</p>
 
       <form onSubmit={postQuestion}>
         <textarea
@@ -222,80 +193,70 @@ export default function App() {
         <input
           type="file"
           accept="image/*"
-          onChange={(e) => setImage(e.target.files?.[0] || null)}
+          onChange={(e) => setImage(e.target.files[0])}
         />
 
-        <button disabled={posting}>
-          {posting ? "Posting..." : "Post Question"}
+        <button disabled={loading}>
+          {loading ? "Posting..." : "Post Question + AI Solve"}
         </button>
       </form>
 
       <h2>Daily Questions</h2>
 
-      {questions.length === 0 && <p className="empty">No questions yet.</p>}
-
       {questions.map((q) => (
         <div className="card" key={q.id}>
-          <div
-            className="questionArea"
-            onClick={() => setOpenId(openId === q.id ? null : q.id)}
-          >
+          <div onClick={() => setOpenId(openId === q.id ? null : q.id)}>
             {q.text && <p>{q.text}</p>}
-            {q.imageUrl && <img src={q.imageUrl} alt="Math question" />}
-            <small>Click to view solutions</small>
+            {q.imageUrl && <img src={q.imageUrl} alt="question" />}
           </div>
+
+          {/* AUTO AI RESULT */}
+          {q.aiSolution && (
+            <div className="solution">
+              <strong>AI Solution:</strong>
+              <br />
+              {q.aiSolution}
+            </div>
+          )}
 
           {openId === q.id && (
             <div className="solutions">
-              <h3>Solutions</h3>
+              <h3>User Solutions</h3>
 
-              {q.solutions?.length > 0 ? (
-                q.solutions.map((s, index) => (
-                  <div className="solution" key={index}>
-                    {s.text}
-                  </div>
-                ))
-              ) : (
-                <p>No user solutions yet.</p>
-              )}
+              {q.solutions?.map((s, i) => (
+                <div key={i} className="solution">
+                  {s.text}
+                </div>
+              ))}
 
               <textarea
-                placeholder="Write your solution..."
+                placeholder="Write solution..."
                 value={solutionText[q.id] || ""}
                 onChange={(e) =>
-                  setSolutionText((prev) => ({
-                    ...prev,
+                  setSolutionText((p) => ({
+                    ...p,
                     [q.id]: e.target.value,
                   }))
                 }
               />
 
-              <button type="button" onClick={() => addSolution(q.id)}>
+              <button onClick={() => addSolution(q.id)}>
                 Add Solution
               </button>
 
               <button
-                type="button"
-                onClick={() => getAiSolution(q.id, q.text, q.imageUrl)}
-                disabled={aiLoading[q.id]}
+                onClick={() =>
+                  getAiSolution(q.id, q.text, q.imageUrl)
+                }
               >
                 {aiLoading[q.id] ? "Generating..." : "Get AI Solution"}
               </button>
 
-              {aiAnswers[q.id] && (
-                <div className="solution">
-                  <strong>AI Solution:</strong>
-                  <br />
-                  <pre>{aiAnswers[q.id]}</pre>
-                </div>
-              )}
-
               <button
-                type="button"
                 className="deleteBtn"
                 onClick={() => deleteQuestion(q.id)}
               >
-                Delete Question
+                Delete
               </button>
             </div>
           )}

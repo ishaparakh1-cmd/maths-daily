@@ -1,17 +1,15 @@
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Only POST allowed" });
-  }
-
   try {
-    const { question } = req.body;
+    const { question, imageUrl } = req.body;
 
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
+    let prompt = `Solve this maths question step by step:\n${question}`;
+
+    if (imageUrl) {
+      prompt += `\n\nAlso analyze this image: ${imageUrl}`;
     }
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: {
@@ -22,7 +20,7 @@ export default async function handler(req, res) {
             {
               parts: [
                 {
-                  text: `Solve this maths question step by step in simple language:\n\n${question}`,
+                  text: prompt,
                 },
               ],
             },
@@ -33,12 +31,6 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    if (!response.ok) {
-      return res.status(500).json({
-        error: data.error?.message || "Gemini API failed",
-      });
-    }
-
     const answer =
       data.candidates?.[0]?.content?.parts?.[0]?.text ||
       "No solution generated.";
@@ -47,4 +39,5 @@ export default async function handler(req, res) {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+}
 }
