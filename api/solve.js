@@ -6,16 +6,37 @@ export default async function handler(req, res) {
 
     const { question, imageUrl } = req.body;
 
-    const prompt = `
+    let parts = [];
+
+    // TEXT INPUT
+    if (question) {
+      parts.push({
+        text: `
 You are an expert maths teacher.
 
-Solve step by step in simple clear format.
+Solve step by step clearly.
 
 Question:
-${question || ""}
+${question}
+        `,
+      });
+    }
 
-If an image is provided, carefully analyze it and solve it.
-`;
+    // IMAGE INPUT (REAL VISION FIX)
+    if (imageUrl) {
+      const imageBuffer = await fetch(imageUrl).then((r) =>
+        r.arrayBuffer()
+      );
+
+      const base64 = Buffer.from(imageBuffer).toString("base64");
+
+      parts.push({
+        inline_data: {
+          mime_type: "image/jpeg",
+          data: base64,
+        },
+      });
+    }
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
@@ -27,11 +48,7 @@ If an image is provided, carefully analyze it and solve it.
         body: JSON.stringify({
           contents: [
             {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
+              parts,
             },
           ],
         }),
@@ -40,23 +57,18 @@ If an image is provided, carefully analyze it and solve it.
 
     const data = await response.json();
 
-    console.log("RAW GEMINI RESPONSE:", JSON.stringify(data));
-
-    // SAFE extraction (important fix)
     const answer =
       data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!answer) {
       return res.status(200).json({
         answer:
-          "AI failed to generate solution. Try a clearer question or image.",
+          "AI could not clearly read this question. Try a clearer image or typed text.",
       });
     }
 
-    return res.status(200).json({ answer });
+    res.status(200).json({ answer });
   } catch (error) {
-    return res.status(500).json({
-      error: error.message,
-    });
+    res.status(500).json({ error: error.message });
   }
 }
